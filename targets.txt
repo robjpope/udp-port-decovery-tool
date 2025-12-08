@@ -1,0 +1,33 @@
+# UDP Discovery Tool - Example Targets File
+# Supports nmap-style target specifications:
+# - Single IPs, IP ranges, CIDR subnets, hostnames
+# - Comments starting with #
+# - Blank lines (ignored)
+
+# Single IP addresses
+192.168.1.1
+10.0.0.1
+
+# IP ranges (last octet)
+192.168.1.10-20
+10.0.0.100-110
+
+# CIDR subnets
+192.168.2.0/28      # 16 hosts: .1 through .14
+10.0.1.0/29         # 8 hosts: .1 through .6
+
+# Full IP ranges
+192.168.1.50-192.168.1.60
+
+# Hostnames and domains
+google.com
+dns.google
+localhost
+
+# Mixed comma-separated (also supported in CLI)
+192.168.1.200,192.168.1.201,192.168.1.202
+
+# Internal Docker test targets (for testing)
+udp-test-ntp        # Comment: NTP service container
+udp-test-tftp       # Comment: TFTP service container
+udp-test-dns        # Comment: DNS service container

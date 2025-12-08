@@ -1,0 +1,11 @@
+service daytime
+{
+    type        = INTERNAL
+    id          = daytime-dgram
+    socket_type = dgram
+    protocol    = udp
+    wait        = yes
+    user        = nobody
+    disable     = no
+    flags       = IPv4
+}

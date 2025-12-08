@@ -1,0 +1,2 @@
+This is a test file for TFTP server.
+If you can read this, TFTP is working!

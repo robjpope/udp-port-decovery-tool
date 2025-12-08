@@ -1,0 +1,99 @@
+services:
+  # DNS Server - internal only
+  dns:
+    image: internetsystemsconsortium/bind9:9.18
+    container_name: udp-test-dns
+    volumes:
+      - ./docker/bind/named.conf:/etc/bind/named.conf
+      - ./docker/bind/zones:/etc/bind/zones
+    command: ["-g", "-c", "/etc/bind/named.conf"]
+    networks:
+      - udp-test-internal
+
+  # NTP Server - internal only
+  ntp:
+    image: cturra/ntp:latest
+    container_name: udp-test-ntp
+    environment:
+      - NTP_SERVERS=time.cloudflare.com
+    networks:
+      - udp-test-internal
+
+  # TFTP Server - internal only
+  tftp:
+    image: pghalliday/tftp
+    container_name: udp-test-tftp
+    volumes:
+      - ./docker/tftp/files:/var/tftpboot
+    networks:
+      - udp-test-internal
+
+  # Simple UDP echo service
+  echo:
+    image: python:3.11-alpine
+    container_name: udp-test-echo
+    volumes:
+      - ./docker/legacy-services:/scripts
+    working_dir: /scripts
+    command: python3 echo.py
+    networks:
+      - udp-test-internal
+
+  # Character Generator service
+  chargen:
+    image: python:3.11-alpine
+    container_name: udp-test-chargen
+    volumes:
+      - ./docker/legacy-services:/scripts
+    working_dir: /scripts
+    command: python3 chargen.py
+    networks:
+      - udp-test-internal
+
+  # Daytime service
+  daytime:
+    image: python:3.11-alpine
+    container_name: udp-test-daytime
+    volumes:
+      - ./docker/legacy-services:/scripts
+    working_dir: /scripts
+    command: python3 daytime.py
+    networks:
+      - udp-test-internal
+
+  # Time service (RFC 868)
+  time:
+    image: python:3.11-alpine
+    container_name: udp-test-time
+    volumes:
+      - ./docker/legacy-services:/scripts
+    working_dir: /scripts
+    command: python3 time.py
+    networks:
+      - udp-test-internal
+
+  # Test runner container with our UDP discovery tool
+  scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile.scanner
+    container_name: udp-scanner
+    volumes:
+      - .:/app
+    working_dir: /app
+    depends_on:
+      - dns
+      - ntp
+      - tftp
+      - echo
+      - chargen
+      - daytime
+      - time
+    networks:
+      - udp-test-internal
+    command: tail -f /dev/null  # Keep container running
+
+networks:
+  udp-test-internal:
+    driver: bridge
+    internal: true  # No external access

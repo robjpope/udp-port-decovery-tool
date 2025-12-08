@@ -36,15 +36,22 @@ class UDPDiscovery:
 
         for attempt in range(self.retries + 1):
             try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                sock.settimeout(self.timeout)
-
+                # Use asyncio.to_thread to run blocking socket operations
                 probe_data = probe.create_probe()
-                sock.sendto(probe_data, (target, port))
+
+                def socket_probe():
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    sock.settimeout(self.timeout)
+                    try:
+                        sock.sendto(probe_data, (target, port))
+                        response, _ = sock.recvfrom(4096)
+                        return response
+                    finally:
+                        sock.close()
 
                 try:
-                    response, _ = sock.recvfrom(4096)
-                    sock.close()
+                    # Run socket operation in thread to avoid blocking event loop
+                    response = await asyncio.to_thread(socket_probe)
 
                     service_info = probe.parse_response(response)
 
@@ -58,7 +65,6 @@ class UDPDiscovery:
                     }
 
                 except socket.timeout:
-                    sock.close()  # Always close immediately
                     if attempt == self.retries:
                         return {
                             'target': target,
@@ -70,7 +76,6 @@ class UDPDiscovery:
                     # Continue to next retry
 
                 except Exception as e:
-                    sock.close()  # Always close immediately
                     if attempt == self.retries:
                         return {
                             'target': target,

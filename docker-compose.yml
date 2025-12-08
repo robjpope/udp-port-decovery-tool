@@ -72,6 +72,17 @@ services:
     networks:
       - udp-test-internal
 
+  # IKE/VPN test service
+  ike:
+    image: python:3.11-alpine
+    container_name: udp-test-ike
+    volumes:
+      - ./docker/ike-simulator:/scripts
+    working_dir: /scripts
+    command: python3 ike_server.py
+    networks:
+      - udp-test-internal
+
   # Test runner container with our UDP discovery tool
   scanner:
     build:
@@ -89,6 +100,7 @@ services:
       - chargen
       - daytime
       - time
+      - ike
     networks:
       - udp-test-internal
     command: tail -f /dev/null  # Keep container running

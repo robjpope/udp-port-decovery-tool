@@ -11,6 +11,7 @@ from .chargen import ChargenProbe
 from .echo import EchoProbe
 from .daytime import DaytimeProbe
 from .time import TimeProbe
+from .ike import IKEProbe
 
 PROBE_REGISTRY: Dict[int, Type[UDPProbe]] = {
     7: EchoProbe,
@@ -28,9 +29,11 @@ PROBE_REGISTRY: Dict[int, Type[UDPProbe]] = {
     138: NetBIOSProbe,
     161: SNMPProbe,
     162: SNMPProbe,
+    500: IKEProbe,      # IKE/IPSec VPN
     514: SyslogProbe,
     1812: ChargenProbe,  # RADIUS - simplified
     1813: ChargenProbe,  # RADIUS Accounting
+    4500: IKEProbe,     # IKE NAT-Traversal
     5060: ChargenProbe,  # SIP - simplified for now
     5353: DNSProbe,  # mDNS uses DNS protocol
 }
@@ -45,8 +48,10 @@ COMMON_UDP_PORTS = [
     137, 138,  # NetBIOS
     161, 162,  # SNMP
     389,  # LDAP
+    500,  # IKE/IPSec VPN
     514,  # Syslog
     1812, 1813,  # RADIUS
+    4500,  # IKE NAT-T
     5060,  # SIP
     5353,  # mDNS
 ]
@@ -71,6 +76,7 @@ __all__ = [
     'EchoProbe',
     'DaytimeProbe',
     'TimeProbe',
+    'IKEProbe',
     'PROBE_REGISTRY',
     'COMMON_UDP_PORTS',
     'get_probe_for_port'

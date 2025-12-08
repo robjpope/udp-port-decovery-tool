@@ -58,8 +58,8 @@ class UDPDiscovery:
                     }
 
                 except socket.timeout:
+                    sock.close()  # Always close immediately
                     if attempt == self.retries:
-                        sock.close()
                         return {
                             'target': target,
                             'port': port,
@@ -67,9 +67,10 @@ class UDPDiscovery:
                             'status': 'filtered',
                             'details': None
                         }
+                    # Continue to next retry
 
                 except Exception as e:
-                    sock.close()
+                    sock.close()  # Always close immediately
                     if attempt == self.retries:
                         return {
                             'target': target,
@@ -78,6 +79,7 @@ class UDPDiscovery:
                             'status': 'error',
                             'details': str(e)
                         }
+                    # Continue to next retry
 
             except Exception as e:
                 if attempt == self.retries:
@@ -111,30 +113,45 @@ class UDPDiscovery:
 
     async def run(self):
         """Run the UDP discovery scan"""
-        print(f"{Fore.CYAN}[*] Starting UDP Discovery Scan{Style.RESET_ALL}")
-        print(f"    Targets: {', '.join(self.targets)}")
-        print(f"    Ports: {len(self.ports)} ports")
-        print(f"    Timeout: {self.timeout}s, Retries: {self.retries}")
-        print()
+        # Print status messages to appropriate stream
+        output_stream = sys.stdout if self.output_formatter.format == 'text' else sys.stderr
+
+        print(f"{Fore.CYAN}[*] Starting UDP Discovery Scan{Style.RESET_ALL}", file=output_stream)
+        print(f"    Targets: {', '.join(self.targets)}", file=output_stream)
+        print(f"    Ports: {len(self.ports)} ports", file=output_stream)
+        print(f"    Timeout: {self.timeout}s, Retries: {self.retries}", file=output_stream)
+        print(file=output_stream)
 
         start_time = time.time()
 
-        for target in self.targets:
-            print(f"{Fore.YELLOW}[*] Scanning {target}...{Style.RESET_ALL}")
+        # Scan all targets in parallel
+        async def scan_and_report(target):
+            print(f"{Fore.YELLOW}[*] Scanning {target}...{Style.RESET_ALL}", file=output_stream)
             target_results = await self.scan_target(target)
-            self.results.extend(target_results)
 
             for result in target_results:
                 if result['status'] == 'open':
-                    print(f"{Fore.GREEN}[+] {target}:{result['port']} - {result['service']}{Style.RESET_ALL}")
-                    if result['details']:
+                    print(f"{Fore.GREEN}[+] {target}:{result['port']} - {result['service']}{Style.RESET_ALL}", file=output_stream)
+                    if result['details'] and self.output_formatter.format == 'text':
                         for key, value in result['details'].items():
-                            print(f"    {key}: {value}")
+                            print(f"    {key}: {value}", file=output_stream)
+
+            return target_results
+
+        # Create tasks for all targets
+        tasks = [scan_and_report(target) for target in self.targets]
+
+        # Run all target scans in parallel
+        all_results = await asyncio.gather(*tasks)
+
+        # Flatten results from all targets
+        for target_results in all_results:
+            self.results.extend(target_results)
 
         elapsed = time.time() - start_time
-        print()
-        print(f"{Fore.CYAN}[*] Scan completed in {elapsed:.2f} seconds{Style.RESET_ALL}")
-        print(f"    Found {len(self.results)} responsive services")
+        print(file=output_stream)
+        print(f"{Fore.CYAN}[*] Scan completed in {elapsed:.2f} seconds{Style.RESET_ALL}", file=output_stream)
+        print(f"    Found {len(self.results)} responsive services", file=output_stream)
 
         return self.results
 
@@ -196,41 +213,48 @@ def main():
     targets = []
     try:
         if args.hosts_file:
-            print(f"[*] Reading targets from file: {args.hosts_file}")
+            output_stream = sys.stdout if args.output == 'text' else sys.stderr
+            print(f"[*] Reading targets from file: {args.hosts_file}", file=output_stream)
             targets = parse_targets_file(args.hosts_file)
-            print(f"[*] Loaded {len(targets)} targets from file")
+            print(f"[*] Loaded {len(targets)} targets from file", file=output_stream)
         else:
             targets = parse_target_spec(args.target)
 
         if not targets:
-            print(f"{Fore.RED}[!] No valid targets found{Style.RESET_ALL}")
+            error_msg = f"{Fore.RED}[!] No valid targets found{Style.RESET_ALL}"
+            print(error_msg, file=sys.stderr if args.output == 'json' else sys.stdout)
             sys.exit(1)
 
     except ValueError as e:
-        print(f"{Fore.RED}[!] Target parsing error: {e}{Style.RESET_ALL}")
+        error_msg = f"{Fore.RED}[!] Target parsing error: {e}{Style.RESET_ALL}"
+        print(error_msg, file=sys.stderr if args.output == 'json' else sys.stdout)
         sys.exit(1)
 
     # Validate a sample of targets (to avoid validating thousands)
     sample_targets = targets[:10] if len(targets) > 10 else targets
     for target in sample_targets:
         if not validate_target(target):
-            print(f"{Fore.RED}[!] Invalid target: {target}{Style.RESET_ALL}")
+            error_msg = f"{Fore.RED}[!] Invalid target: {target}{Style.RESET_ALL}"
+            print(error_msg, file=sys.stderr if args.output == 'json' else sys.stdout)
             sys.exit(1)
 
     # Parse ports
     try:
         ports = parse_ports(args.ports)
     except ValueError as e:
-        print(f"{Fore.RED}[!] Invalid port specification: {e}{Style.RESET_ALL}")
+        error_msg = f"{Fore.RED}[!] Invalid port specification: {e}{Style.RESET_ALL}"
+        print(error_msg, file=sys.stderr if args.output == 'json' else sys.stdout)
         sys.exit(1)
 
     if not ports:
-        print(f"{Fore.RED}[!] No valid ports specified{Style.RESET_ALL}")
+        error_msg = f"{Fore.RED}[!] No valid ports specified{Style.RESET_ALL}"
+        print(error_msg, file=sys.stderr if args.output == 'json' else sys.stdout)
         sys.exit(1)
 
     # Check for root privileges (recommended for raw sockets)
     if sys.platform.startswith('linux') and not sys.stdout.isatty():
-        print(f"{Fore.YELLOW}[!] Warning: Running without TTY, some features may be limited{Style.RESET_ALL}")
+        output_stream = sys.stdout if args.output == 'text' else sys.stderr
+        print(f"{Fore.YELLOW}[!] Warning: Running without TTY, some features may be limited{Style.RESET_ALL}", file=output_stream)
 
     # Create scanner instance
     scanner = UDPDiscovery(
@@ -247,10 +271,12 @@ def main():
         results = asyncio.run(scanner.run())
         scanner.output_results()
     except KeyboardInterrupt:
-        print(f"\n{Fore.YELLOW}[!] Scan interrupted by user{Style.RESET_ALL}")
+        if args.output != 'json':
+            print(f"\n{Fore.YELLOW}[!] Scan interrupted by user{Style.RESET_ALL}")
         sys.exit(1)
     except Exception as e:
-        print(f"{Fore.RED}[!] Error during scan: {e}{Style.RESET_ALL}")
+        error_msg = f"{Fore.RED}[!] Error during scan: {e}{Style.RESET_ALL}"
+        print(error_msg, file=sys.stderr if args.output == 'json' else sys.stdout)
         sys.exit(1)
 
 if __name__ == '__main__':

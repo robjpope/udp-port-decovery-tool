@@ -18,7 +18,9 @@ init(autoreset=True)
 
 class UDPDiscovery:
     def __init__(self, targets: List[str], ports: List[int], timeout: float = 2.0,
-                 retries: int = 1, rate_limit: int = 100, output_format: str = 'text'):
+                 retries: int = 1, rate_limit: int = 100, output_format: str = 'text',
+                 show_packets: bool = False, dns_domains: List[str] = None,
+                 dns_query_type: str = 'TXT'):
         self.targets = targets
         self.ports = ports
         self.timeout = timeout
@@ -26,10 +28,45 @@ class UDPDiscovery:
         self.rate_limit = rate_limit
         self.output_formatter = OutputFormatter(output_format)
         self.results = []
+        self.show_packets = show_packets
+        self.dns_domains = dns_domains or ['version.bind']
+        self.dns_query_type = dns_query_type
 
     async def scan_port(self, target: str, port: int) -> Optional[Dict[str, Any]]:
         """Scan a single UDP port on target"""
-        probe = get_probe_for_port(port)
+        # For DNS ports, scan each domain separately
+        if port in [53, 5353] and len(self.dns_domains) > 1:
+            results = []
+            for domain in self.dns_domains:
+                result = await self._scan_single_probe(target, port, domain=domain,
+                                                     query_type=self.dns_query_type)
+                if result:
+                    results.append(result)
+
+            # Return the best result (prefer responses with data)
+            if results:
+                # Prefer results with actual answer data
+                for result in results:
+                    if (result.get('details', {}).get('answer_data') and
+                        len(result['details']['answer_data']) > 0):
+                        return result
+                return results[0]  # Return first result if no answers found
+            return None
+        else:
+            # For non-DNS or single domain DNS, use regular scanning
+            domain = self.dns_domains[0] if port in [53, 5353] else None
+            return await self._scan_single_probe(target, port, domain=domain,
+                                               query_type=self.dns_query_type)
+
+    async def _scan_single_probe(self, target: str, port: int, domain: str = None,
+                                query_type: str = 'TXT') -> Optional[Dict[str, Any]]:
+        """Scan a single probe configuration"""
+        # Prepare probe parameters for DNS
+        probe_params = {}
+        if port in [53, 5353] and domain:
+            probe_params = {'domain': domain, 'query_type': query_type}
+
+        probe = get_probe_for_port(port, **probe_params)
 
         if not probe:
             return None
@@ -55,14 +92,27 @@ class UDPDiscovery:
 
                     service_info = probe.parse_response(response)
 
-                    return {
+                    # Add raw packet data for analysis
+                    result = {
                         'target': target,
                         'port': port,
                         'service': probe.name,
                         'status': 'open',
                         'details': service_info,
-                        'response_size': len(response)
+                        'response_size': len(response),
+                        'request_hex': probe_data.hex(),
+                        'request_size': len(probe_data),
+                        'response_hex': response.hex()
                     }
+
+                    # Add ASCII representation if printable
+                    try:
+                        ascii_repr = ''.join(chr(b) if 32 <= b < 127 else '.' for b in response[:100])
+                        result['response_ascii'] = ascii_repr
+                    except:
+                        pass
+
+                    return result
 
                 except socket.timeout:
                     if attempt == self.retries:
@@ -141,6 +191,27 @@ class UDPDiscovery:
                         for key, value in result['details'].items():
                             print(f"    {key}: {value}", file=output_stream)
 
+                    # Show packet details if requested
+                    if self.show_packets and self.output_formatter.format == 'text':
+                        print(f"{Fore.BLUE}    [Request Packet]{Style.RESET_ALL}", file=output_stream)
+                        print(f"      Size: {result.get('request_size', 0)} bytes", file=output_stream)
+                        if 'request_hex' in result:
+                            hex_str = result['request_hex']
+                            # Format hex in 16-byte rows
+                            for i in range(0, min(len(hex_str), 64), 32):
+                                print(f"      {hex_str[i:i+32]}", file=output_stream)
+
+                        print(f"{Fore.BLUE}    [Response Packet]{Style.RESET_ALL}", file=output_stream)
+                        print(f"      Size: {result.get('response_size', 0)} bytes", file=output_stream)
+                        if 'response_hex' in result:
+                            hex_str = result['response_hex']
+                            # Show first 128 bytes in hex
+                            for i in range(0, min(len(hex_str), 256), 32):
+                                print(f"      {hex_str[i:i+32]}", file=output_stream)
+
+                        if 'response_ascii' in result:
+                            print(f"      ASCII: {result['response_ascii'][:80]}", file=output_stream)
+
             return target_results
 
         # Create tasks for all targets
@@ -208,6 +279,12 @@ def parse_arguments():
                        help='Output format (default: text)')
     parser.add_argument('-v', '--verbose', action='store_true',
                        help='Enable verbose output')
+    parser.add_argument('--show-packets', action='store_true',
+                       help='Display packet hex dumps and ASCII representation')
+    parser.add_argument('--dns-domains', type=str, default='version.bind',
+                       help='Comma-separated list of domains to query for DNS probes (default: version.bind)')
+    parser.add_argument('--dns-query-type', choices=['A', 'AAAA', 'TXT'], default='TXT',
+                       help='DNS query type (default: TXT)')
 
     return parser.parse_args()
 
@@ -261,6 +338,11 @@ def main():
         output_stream = sys.stdout if args.output == 'text' else sys.stderr
         print(f"{Fore.YELLOW}[!] Warning: Running without TTY, some features may be limited{Style.RESET_ALL}", file=output_stream)
 
+    # Parse DNS domains
+    dns_domains = [domain.strip() for domain in args.dns_domains.split(',') if domain.strip()]
+    if not dns_domains:
+        dns_domains = ['version.bind']
+
     # Create scanner instance
     scanner = UDPDiscovery(
         targets=targets,
@@ -268,7 +350,10 @@ def main():
         timeout=args.timeout,
         retries=args.retries,
         rate_limit=args.rate_limit,
-        output_format=args.output
+        output_format=args.output,
+        show_packets=args.show_packets,
+        dns_domains=dns_domains,
+        dns_query_type=args.dns_query_type
     )
 
     # Run the scan

@@ -56,11 +56,11 @@ COMMON_UDP_PORTS = [
     5353,  # mDNS
 ]
 
-def get_probe_for_port(port: int) -> Optional[UDPProbe]:
+def get_probe_for_port(port: int, **kwargs) -> Optional[UDPProbe]:
     """Get the appropriate probe instance for a given port"""
     probe_class = PROBE_REGISTRY.get(port)
     if probe_class:
-        return probe_class()
+        return probe_class(**kwargs)
     return None
 
 __all__ = [

@@ -4,8 +4,9 @@ from typing import Dict, Any, Optional
 class UDPProbe(ABC):
     """Base class for UDP service probes"""
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.name = self.__class__.__name__.replace('Probe', '')
+        self.params = kwargs
 
     @abstractmethod
     def create_probe(self) -> bytes:

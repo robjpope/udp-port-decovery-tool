@@ -25,8 +25,10 @@ def parse_ports(port_spec: str) -> List[int]:
             137, 138,  # NetBIOS
             161, 162,  # SNMP
             389,  # LDAP
+            500,  # IKE/IPSec VPN
             514,  # Syslog
             1812, 1813,  # RADIUS
+            4500,  # IKE NAT-Traversal
             5060,  # SIP
             5353,  # mDNS
         ]
